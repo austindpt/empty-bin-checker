@@ -1,0 +1,113 @@
+<script>
+  const binInput = document.getElementById("binInput");
+  const resultEl = document.getElementById("result");
+  const metaEl = document.getElementById("meta");
+  const clearBtn = document.getElementById("clearBtn");
+
+  // Create report button dynamically
+  const reportBtn = document.createElement("button");
+  reportBtn.textContent = "Report as Empty";
+  reportBtn.style.display = "none";
+  reportBtn.style.marginTop = "10px";
+  reportBtn.style.background = "#b00020";
+  reportBtn.style.color = "#fff";
+  reportBtn.style.border = "none";
+  reportBtn.style.borderRadius = "6px";
+  reportBtn.style.padding = "12px";
+  reportBtn.style.fontSize = "16px";
+  reportBtn.style.cursor = "pointer";
+  resultEl.after(reportBtn);
+
+  let emptyBins = new Set();
+  let loaded = false;
+  let lastCheckedBin = null;
+  let reportedBins = [];
+
+  function norm(s) {
+    return String(s ?? "").trim().toUpperCase();
+  }
+
+  function setResult(text, cls, meta="") {
+    resultEl.textContent = text;
+    resultEl.className = "result " + (cls || "");
+    metaEl.textContent = meta;
+  }
+
+  async function loadBins() {
+    const res = await fetch("./bins.csv", { cache: "no-store" });
+    const text = await res.text();
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const startIdx = lines[0].toLowerCase().includes("bin") ? 1 : 0;
+    emptyBins = new Set(lines.slice(startIdx).map(norm));
+    loaded = true;
+    setResult("Ready ✅", "ok", `Loaded ${emptyBins.size} empty bins`);
+    binInput.focus();
+  }
+
+  function lookup(binRaw) {
+    reportBtn.style.display = "none";
+    if (!loaded) return;
+
+    const bin = norm(binRaw);
+    lastCheckedBin = bin;
+    if (!bin) return;
+
+    if (emptyBins.has(bin)) {
+      setResult("EMPTY ✅", "ok", `Bin ${bin} is on the empty list`);
+    } else {
+      setResult("NOT EMPTY ❌", "bad", `Bin ${bin} is NOT on the empty list`);
+      reportBtn.style.display = "block";
+    }
+  }
+
+  reportBtn.addEventListener("click", () => {
+    if (!lastCheckedBin) return;
+
+    reportedBins.push({
+      bin: lastCheckedBin,
+      time: new Date().toISOString()
+    });
+
+    setResult("REPORTED ✅", "warn", `Bin ${lastCheckedBin} marked for review`);
+    reportBtn.style.display = "none";
+  });
+
+  clearBtn.addEventListener("click", () => {
+    binInput.value = "";
+    setResult("", "");
+    metaEl.textContent = "";
+    reportBtn.style.display = "none";
+    binInput.focus();
+  });
+
+  binInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      lookup(binInput.value);
+      binInput.select();
+    }
+  });
+
+  // Download reported bins as CSV
+  const downloadBtn = document.createElement("button");
+  downloadBtn.textContent = "Download Reported Bins CSV";
+  downloadBtn.style.marginTop = "20px";
+  downloadBtn.onclick = () => {
+    if (!reportedBins.length) return alert("No reported bins yet.");
+
+    let csv = "Bin,Reported At\n";
+    reportedBins.forEach(r => {
+      csv += `${r.bin},${r.time}\n`;
+    });
+
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "reported_empty_bins.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  document.body.appendChild(downloadBtn);
+
+  loadBins();
+</script>
