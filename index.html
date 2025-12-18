@@ -1,113 +1,112 @@
-<script>
-  const binInput = document.getElementById("binInput");
-  const resultEl = document.getElementById("result");
-  const metaEl = document.getElementById("meta");
-  const clearBtn = document.getElementById("clearBtn");
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Empty Bin Checker</title>
+  <style>
+    body { font-family: system-ui, Arial; max-width: 720px; margin: 32px auto; padding: 0 16px; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin: 12px 0; }
+    input { width: 100%; padding: 14px; font-size: 20px; }
+    .result { font-size: 26px; font-weight: 800; margin-top: 12px; }
+    .ok { color: #0a7a0a; }
+    .bad { color: #b00020; }
+    .warn { color: #9a6b00; }
+    .small { color: #555; font-size: 13px; }
+    button { padding: 10px 14px; font-size: 14px; cursor: pointer; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Empty Bin Checker</h1>
 
-  // Create report button dynamically
-  const reportBtn = document.createElement("button");
-  reportBtn.textContent = "Report as Empty";
-  reportBtn.style.display = "none";
-  reportBtn.style.marginTop = "10px";
-  reportBtn.style.background = "#b00020";
-  reportBtn.style.color = "#fff";
-  reportBtn.style.border = "none";
-  reportBtn.style.borderRadius = "6px";
-  reportBtn.style.padding = "12px";
-  reportBtn.style.fontSize = "16px";
-  reportBtn.style.cursor = "pointer";
-  resultEl.after(reportBtn);
+  <div class="card">
+    <div class="small">
+      This checks against the published <code>bins.csv</code> list of EMPTY bins.
+      If the bin is listed → EMPTY. If not listed → NOT EMPTY / not on list.
+    </div>
+  </div>
 
-  let emptyBins = new Set();
-  let loaded = false;
-  let lastCheckedBin = null;
-  let reportedBins = [];
+  <div class="card">
+    <label><b>Scan / enter bin barcode</b></label><br/>
+    <input id="binInput" placeholder="Scan bin barcode..." autocomplete="off" />
+    <div id="result" class="result"></div>
+    <div id="meta" class="small"></div>
+    <button id="clearBtn" type="button">Clear</button>
+  </div>
 
-  function norm(s) {
-    return String(s ?? "").trim().toUpperCase();
-  }
+  <script>
+    const binInput = document.getElementById("binInput");
+    const resultEl = document.getElementById("result");
+    const metaEl = document.getElementById("meta");
+    const clearBtn = document.getElementById("clearBtn");
 
-  function setResult(text, cls, meta="") {
-    resultEl.textContent = text;
-    resultEl.className = "result " + (cls || "");
-    metaEl.textContent = meta;
-  }
+    let emptyBins = new Set();
+    let loaded = false;
 
-  async function loadBins() {
-    const res = await fetch("./bins.csv", { cache: "no-store" });
-    const text = await res.text();
-    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    const startIdx = lines[0].toLowerCase().includes("bin") ? 1 : 0;
-    emptyBins = new Set(lines.slice(startIdx).map(norm));
-    loaded = true;
-    setResult("Ready ✅", "ok", `Loaded ${emptyBins.size} empty bins`);
-    binInput.focus();
-  }
-
-  function lookup(binRaw) {
-    reportBtn.style.display = "none";
-    if (!loaded) return;
-
-    const bin = norm(binRaw);
-    lastCheckedBin = bin;
-    if (!bin) return;
-
-    if (emptyBins.has(bin)) {
-      setResult("EMPTY ✅", "ok", `Bin ${bin} is on the empty list`);
-    } else {
-      setResult("NOT EMPTY ❌", "bad", `Bin ${bin} is NOT on the empty list`);
-      reportBtn.style.display = "block";
+    function norm(s) {
+      return String(s ?? "").trim().toUpperCase();
     }
-  }
 
-  reportBtn.addEventListener("click", () => {
-    if (!lastCheckedBin) return;
+    function setResult(text, cls, meta="") {
+      resultEl.textContent = text;
+      resultEl.className = "result " + (cls || "");
+      metaEl.textContent = meta;
+    }
 
-    reportedBins.push({
-      bin: lastCheckedBin,
-      time: new Date().toISOString()
+    async function loadBins() {
+      try {
+        const res = await fetch("./bins.csv", { cache: "no-store" });
+        if (!res.ok) throw new Error(`Could not load bins.csv (${res.status})`);
+        const text = await res.text();
+
+        // Expect CSV with header "Bin Number" and one value per row
+        const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+        // Remove header if present
+        const startIdx = lines[0].toLowerCase().includes("bin") ? 1 : 0;
+
+        emptyBins = new Set(lines.slice(startIdx).map(norm).filter(Boolean));
+        loaded = true;
+
+        setResult("Ready ✅", "ok", `Loaded ${emptyBins.size} empty bins`);
+        binInput.focus();
+      } catch (e) {
+        loaded = false;
+        setResult("Failed to load bins.csv", "bad", String(e));
+      }
+    }
+
+    function lookup(binRaw) {
+      if (!loaded) {
+        setResult("Not ready", "warn", "bins.csv not loaded yet");
+        return;
+      }
+      const bin = norm(binRaw);
+      if (!bin) { setResult("", ""); metaEl.textContent = ""; return; }
+
+      if (emptyBins.has(bin)) {
+        setResult("EMPTY ✅", "ok", `Bin ${bin} is on the empty list`);
+      } else {
+        setResult("NOT EMPTY ❌", "bad", `Bin ${bin} is NOT on the empty list`);
+      }
+    }
+
+    // Barcode scanners usually type then send Enter
+    binInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        lookup(binInput.value);
+        binInput.select(); // fast repeat scans
+      }
     });
 
-    setResult("REPORTED ✅", "warn", `Bin ${lastCheckedBin} marked for review`);
-    reportBtn.style.display = "none";
-  });
-
-  clearBtn.addEventListener("click", () => {
-    binInput.value = "";
-    setResult("", "");
-    metaEl.textContent = "";
-    reportBtn.style.display = "none";
-    binInput.focus();
-  });
-
-  binInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      lookup(binInput.value);
-      binInput.select();
-    }
-  });
-
-  // Download reported bins as CSV
-  const downloadBtn = document.createElement("button");
-  downloadBtn.textContent = "Download Reported Bins CSV";
-  downloadBtn.style.marginTop = "20px";
-  downloadBtn.onclick = () => {
-    if (!reportedBins.length) return alert("No reported bins yet.");
-
-    let csv = "Bin,Reported At\n";
-    reportedBins.forEach(r => {
-      csv += `${r.bin},${r.time}\n`;
+    clearBtn.addEventListener("click", () => {
+      binInput.value = "";
+      setResult("", "");
+      metaEl.textContent = "";
+      binInput.focus();
     });
 
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "reported_empty_bins.csv";
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-  document.body.appendChild(downloadBtn);
-
-  loadBins();
-</script>
+    loadBins();
+  </script>
+</body>
+</html>
